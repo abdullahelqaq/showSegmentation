@@ -44,21 +44,26 @@ class Show: #simple struct to ID shows for easy reference
 		self.faces = faces
 		self.cues = []
 
-		cueCount = 0
+		self.cueCount = 0
 		if len(faces) > 0:
-			cueCount += 1
-		if not logoPath is None:
-			cueCount += 1
-		if not musicPath is None:
-			cueCount += 1
+			self.cueCount += 1
+		if not logoPath == "":
+			self.cueCount += 1
+		if not musicPath == "":
+			self.cueCount += 1
 
-	def addCue(newCue):
-		for i in range(len(self.cues)):
-			if self.cues[i].cueType == newCue.cueType:
-				self.cues[i] = newCue
-				break
-			else:
-				self.cues.append(newCue)
+		self.cueCount = 1
+
+	def addCue(self, newCue):
+		if (len(self.cues) > 0):
+			for i in range(len(self.cues)):
+				if self.cues[i].cueType == newCue.cueType:
+					self.cues[i] = newCue
+					break
+				else:
+					self.cues.append(newCue)
+		else:
+			self.cues.append(newCue)
 
 class Boundary: #simple struct to ID shows for easy reference
 	def __init__(self, timestamp, prev, current):
@@ -80,15 +85,18 @@ with open(args["show_metadata"], mode='r') as csv_file:
 	index = 0
 	for row in csv_reader:
 		index += 1
-		shows.append(Show(index, row["name"], row["logoPath"], row["musicPath"], row["faces"].split(',')))
-		
+		#shows.append(Show(index, row["name"], row["logoPath"], row["musicPath"], row["faces"].split('-')))
+		shows.append(Show(index, row["name"], "", "", row["faces"].split('-')))		
 
 stream = cv2.VideoCapture(args["input"])
 (major_ver, minor_ver, subminor_ver) = (cv2.__version__).split('.')
 if int(major_ver)  < 3:
 	fps = stream.get(cv2.cv.CV_CAP_PROP_FPS)
+	frames = stream.get(cv2.cv.CV_CAP_PROP_FRAME_COUNT)
 else:
 	fps = stream.get(cv2.CAP_PROP_FPS)
+	frames = stream.get(cv2.CAP_PROP_FRAME_COUNT)
+progress = 0
 #----------------------------------------#
 
 #-------------FUNCTION WRAPPERS-------------#
@@ -106,24 +114,30 @@ def whatLogo():
 #----------------------------------------#
 
 while True:
-
+	counter += 1
 	#increment cue age so as to only consider cues from past timeBuffer seconds
 	#if all cues for a non-current show appear within 30 seconds, boundary found
 	for i in range(len(shows)):
 		for j in range(len(shows[i].cues) - 1, -1, -1):
 			shows[i].cues[j].age += 1
+
 			if shows[i].cues[j].age > (timeBuffer*fps):
-				del cues[j]
-		if shows[i].cueCount == len(shows.cues):
+				del shows[i].cues[j]
+		if shows[i].cueCount == len(shows[i].cues):
 			if not currentShow == shows[i].id:
-				boundaries.append(Boundary(counter*fps, currentShow, shows[i].id))
+				boundaries.append(Boundary(counter/fps, currentShow, shows[i].id))
 				currentShow = shows[i].id
+				for x in range(len(shows)):
+					shows[x].cues = []
 				break
 
 	#pull next frame from video, break if finished all frames
 	(grabbed, frame) = stream.read()
 	if not grabbed:
 		break
+
+	if (counter % int(fps) != 0):
+		continue
 
 	# convert the input frame from BGR to RGB then resize it to have
 	# a width of 750px (easier processing)
@@ -135,24 +149,27 @@ while True:
 	faces = getFaces(rgb)
 
 	for i in range(len(shows)):
-
 		# record each face cue under relevant show w/o cue type repitition
 		for j in range(len(faces)):	
 			if faces[j] in shows[i].faces:
-				newCue = Cue("face", show[i].id)
-				show[i].addCue(newCue)
+				newCue = Cue("face", shows[i].id)
+				shows[i].addCue(newCue)
 				
 		#placeholder function; music analysis will require range of video frames (TODO)
-		if whatMusic() == show[i].id:
-			newCue = Cue("music", show[i].id)
-			show[i].addCue(newCue)
+		if whatMusic() == shows[i].id:
+			newCue = Cue("music", shows[i].id)
+			shows[i].addCue(newCue)
 
 		#placeholder function; need to link to current implementation (TODO)
-		if whatLogo() == show[i].id:
-			newCue = Cue("logo", show[i].id)
-			show[i].addCue(newCue)
+		if whatLogo() == shows[i].id:
+			newCue = Cue("logo", shows[i].id)
+			shows[i].addCue(newCue)
 
-	counter += 1
+
+	if int(counter/frames*100) != progress:
+		progress = int(counter/frames*100)
+		print(str(progress) + "%")
+
 
 stream.release()
 
@@ -174,6 +191,7 @@ for i in range(len(boundaries)):
 			data.append(shows[j].name)
 			if len(data) == 3:
 				break
+	csvData.append(data)
 
 with open(args["output"], 'w') as csvFile:
     writer = csv.writer(csvFile)
